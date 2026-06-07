@@ -1,0 +1,14 @@
+﻿Parameter,Nilai
+Dataset,Condition Monitoring Hydraulic Systems
+Target,pump_leak (3 kelas)
+Sensor Input,"PS1, PS2, PS3, TS1, TS2"
+Jumlah Fitur,10
+ra Subtractive SC,0.5
+Jumlah Rules,4
+Metode Optimizer,"Adam (Multi-LR: MF=5e-3, Konsekuen=1e-2)"
+Epochs,200
+Accuracy (%),93.1973
+F1-Score Weighted (%),93.2764
+Acc Kelas 0 (%),95.4918
+Acc Kelas 1 (%),86.8687
+Acc Kelas 2 (%),93.8776
