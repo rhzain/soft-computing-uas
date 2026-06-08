@@ -45,6 +45,15 @@ def load_sensor_shapes() -> dict[str, tuple[int, int]]:
 
 
 @st.cache_data(show_spinner=False)
+def load_sensor_data(sensor: str) -> pd.DataFrame:
+    if sensor not in SENSOR_LIST:
+        raise ValueError(f"Unknown sensor: {sensor}")
+
+    sensor_path = DATA_DIR / f"{sensor}.txt"
+    return pd.read_csv(sensor_path, sep="\t", header=None)
+
+
+@st.cache_data(show_spinner=False)
 def get_dataset_summary() -> DatasetSummary:
     profile = load_profile()
     sensor_shapes = load_sensor_shapes()
