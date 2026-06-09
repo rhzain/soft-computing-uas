@@ -12,14 +12,13 @@ def render() -> None:
 
     st.title("Dataset Explorer")
     st.caption(
-        "Eksplorasi sederhana untuk data sensor mentah dan target kondisi "
-        "`pump_leak`."
+        "Sensor data profile, target distribution, and cycle-level signal preview."
     )
 
     render_dataset_metrics(summary)
 
     tab_summary, tab_distribution, tab_sensor, tab_profile = st.tabs(
-        ["Ringkasan Data", "Distribusi Target", "Preview Sensor", "Profile Data"]
+        ["Dataset Summary", "Target Distribution", "Sensor Preview", "Profile Data"]
     )
 
     with tab_summary:
@@ -38,24 +37,24 @@ def render() -> None:
 def render_dataset_metrics(summary) -> None:
     metric_columns = st.columns(5)
     metric_columns[0].metric(
-        "Jumlah Siklus",
+        "Operating Cycles",
         f"{summary.cycle_count:,}".replace(",", "."),
     )
-    metric_columns[1].metric("Sensor Dipakai", len(SENSOR_LIST))
+    metric_columns[1].metric("Selected Sensors", len(SENSOR_LIST))
     metric_columns[2].metric("Target", "pump_leak")
-    metric_columns[3].metric("Jumlah Kelas", len(CLASS_LABELS))
-    metric_columns[4].metric("Fitur Wavelet", "15")
+    metric_columns[3].metric("Classes", len(CLASS_LABELS))
+    metric_columns[4].metric("Wavelet Features", "15")
 
 
 def render_dataset_summary(summary) -> None:
-    st.subheader("Konteks Dataset")
+    st.subheader("Dataset Context")
 
     st.markdown(
         """
         Dataset yang digunakan adalah **Condition Monitoring of Hydraulic
-        Systems**. Setiap baris mewakili satu cycle operasi sistem hidrolik.
-        Proyek ini fokus pada klasifikasi kondisi `pump_leak` berdasarkan
-        sinyal sensor tekanan dan temperatur.
+        Systems**. Setiap baris merepresentasikan satu cycle operasi sistem
+        hidrolik. Analisis berfokus pada klasifikasi kondisi `pump_leak`
+        berdasarkan sensor tekanan dan temperatur.
         """
     )
 
@@ -64,18 +63,18 @@ def render_dataset_summary(summary) -> None:
     with left_column:
         class_table = pd.DataFrame(
             {
-                "Kelas": list(CLASS_LABELS.keys()),
-                "Makna": list(CLASS_LABELS.values()),
+                "Class": list(CLASS_LABELS.keys()),
+                "Meaning": list(CLASS_LABELS.values()),
             }
         )
-        st.markdown("**Makna Kelas Target**")
+        st.markdown("**Target Classes**")
         st.dataframe(class_table, hide_index=True, use_container_width=True)
 
     with right_column:
         sensor_table = pd.DataFrame(
             {
                 "Sensor": SENSOR_LIST,
-                "Jumlah Siklus": [
+                "Operating Cycles": [
                     summary.sensor_shapes[sensor][0] for sensor in SENSOR_LIST
                 ],
                 "Time Steps": [
@@ -83,7 +82,7 @@ def render_dataset_summary(summary) -> None:
                 ],
             }
         )
-        st.markdown("**Sensor Yang Digunakan**")
+        st.markdown("**Selected Sensors**")
         st.dataframe(sensor_table, hide_index=True, use_container_width=True)
 
     render_feature_summary()
@@ -91,32 +90,32 @@ def render_dataset_summary(summary) -> None:
 
 
 def render_feature_summary() -> None:
-    st.subheader("Fitur Wavelet")
+    st.subheader("Wavelet Features")
 
     feature_table = pd.DataFrame(
         [
             {
                 "Fitur": "mean_cA",
-                "Sumber": "Koefisien approximation",
-                "Makna": "Rata-rata komponen utama sinyal",
+                "Sumber": "Approximation coefficient",
+                "Makna": "Average low-frequency signal component",
             },
             {
                 "Fitur": "std_cA",
-                "Sumber": "Koefisien approximation",
-                "Makna": "Variasi komponen utama sinyal",
+                "Sumber": "Approximation coefficient",
+                "Makna": "Variation of low-frequency signal component",
             },
             {
                 "Fitur": "energy_cD",
-                "Sumber": "Koefisien detail",
-                "Makna": "Energi perubahan cepat pada sinyal",
+                "Sumber": "Detail coefficient",
+                "Makna": "Energy of high-frequency signal variation",
             },
         ]
     )
 
     st.dataframe(feature_table, hide_index=True, use_container_width=True)
     st.info(
-        "Setiap sensor menghasilkan 3 fitur wavelet. Dengan 5 sensor, total "
-        "input model adalah 15 fitur."
+        "Each selected sensor contributes three wavelet features, producing 15 "
+        "model inputs in total."
     )
 
 
@@ -124,44 +123,44 @@ def render_stable_flag_distribution() -> None:
     profile = load_profile()
     stable_counts = profile["stable_flag"].value_counts().sort_index()
 
-    st.subheader("Distribusi Stable Flag")
+    st.subheader("Stable Flag Distribution")
     st.bar_chart(stable_counts)
     st.caption(
-        "`stable_flag = 0` berarti kondisi stabil, sedangkan `stable_flag = 1` "
-        "menandakan kondisi statis kemungkinan belum tercapai."
+        "`stable_flag = 0` indicates stable operation, while `stable_flag = 1` "
+        "indicates that steady-state conditions may not have been reached."
     )
 
 
 def render_target_distribution(class_distribution: pd.DataFrame) -> None:
-    st.subheader("Distribusi Target")
+    st.subheader("Target Distribution")
 
     left_column, right_column = st.columns([1.1, 1])
 
     with left_column:
         chart_data = class_distribution.set_index("class")["count"]
         st.bar_chart(chart_data)
-        st.caption("Jumlah data untuk setiap kelas `pump_leak`.")
+        st.caption("Sample count for each `pump_leak` class.")
 
     with right_column:
         table = class_distribution.copy()
         table["label"] = table["class"].map(CLASS_LABELS)
         table = table[["class", "label", "count", "percentage"]]
-        table.columns = ["Kelas", "Label", "Jumlah", "Persentase (%)"]
+        table.columns = ["Class", "Label", "Count", "Percentage (%)"]
         st.dataframe(table, hide_index=True, use_container_width=True)
 
     st.markdown(
         """
-        Kelas normal memiliki jumlah data paling besar, sedangkan kelas
-        kebocoran lemah dan kebocoran parah lebih kecil tetapi seimbang.
-        Ini alasan evaluasi model memakai weighted F1-score selain accuracy.
+        The normal class is the largest group, while weak and severe leakage
+        have balanced sample counts. Weighted F1-score is used alongside
+        accuracy to account for this distribution.
         """
     )
 
 
 def render_sensor_preview(sensor_shapes: dict[str, tuple[int, int]]) -> None:
-    st.subheader("Preview Sensor Mentah")
+    st.subheader("Sensor Signal Preview")
 
-    selected_sensor = st.selectbox("Pilih sensor", SENSOR_LIST)
+    selected_sensor = st.selectbox("Sensor", SENSOR_LIST)
     sensor_data = load_sensor_data(selected_sensor)
     cycle_count, time_steps = sensor_shapes[selected_sensor]
 
@@ -173,11 +172,11 @@ def render_sensor_preview(sensor_shapes: dict[str, tuple[int, int]]) -> None:
         value=0,
     )
     max_points = control_columns[1].selectbox(
-        "Maksimum titik grafik",
+        "Maximum chart points",
         options=[250, 500, 1000, 2000, time_steps],
         index=2,
     )
-    show_table = control_columns[2].checkbox("Tampilkan nilai mentah", value=False)
+    show_table = control_columns[2].checkbox("Show sampled values", value=False)
 
     step = max(1, time_steps // int(max_points))
     series = sensor_data.iloc[cycle_index, ::step]
@@ -199,8 +198,8 @@ def render_sensor_preview(sensor_shapes: dict[str, tuple[int, int]]) -> None:
         st.dataframe(chart_data, hide_index=True, use_container_width=True)
 
     st.caption(
-        "Grafik ini menampilkan satu cycle operasi. Sensor tekanan memiliki "
-        "6000 time steps, sedangkan sensor temperatur memiliki 60 time steps."
+        "The chart displays one operating cycle. Pressure sensors contain 6000 "
+        "time steps, while temperature sensors contain 60 time steps."
     )
 
 
@@ -209,11 +208,11 @@ def render_profile_preview() -> None:
 
     profile = load_profile()
     selected_columns = st.multiselect(
-        "Kolom yang ditampilkan",
+        "Displayed columns",
         options=list(profile.columns),
         default=list(profile.columns),
     )
-    row_count = st.slider("Jumlah baris", min_value=5, max_value=100, value=20)
+    row_count = st.slider("Rows", min_value=5, max_value=100, value=20)
 
     if selected_columns:
         st.dataframe(
@@ -222,15 +221,15 @@ def render_profile_preview() -> None:
             use_container_width=True,
         )
     else:
-        st.warning("Pilih minimal satu kolom untuk ditampilkan.")
+        st.warning("Select at least one column.")
 
-    with st.expander("Keterangan kolom profile"):
+    with st.expander("Profile column definitions"):
         st.markdown(
             """
-            - `cooler_cond`: kondisi cooler dalam persen.
-            - `valve_cond`: kondisi valve dalam persen.
-            - `pump_leak`: target klasifikasi kebocoran pompa.
-            - `accumulator_cond`: tekanan accumulator.
-            - `stable_flag`: penanda kondisi stabil atau belum stabil.
+            - `cooler_cond`: cooler condition percentage.
+            - `valve_cond`: valve condition percentage.
+            - `pump_leak`: pump leakage classification target.
+            - `accumulator_cond`: hydraulic accumulator pressure.
+            - `stable_flag`: stability indicator for operating conditions.
             """
         )

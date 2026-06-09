@@ -6,17 +6,17 @@ import streamlit as st
 from dashboard.config import (
     CV_RESULTS,
     FINAL_EVALUATION,
-    IMAGE_ARTIFACTS,
-    MODEL_ARTIFACT_PATH,
+    MODEL_PACKAGE_NAME,
+    MODEL_PACKAGE_PATH,
     RA_GRID_RESULTS,
+    VISUAL_ASSETS,
 )
 
 
 def render() -> None:
-    st.title("Visualization Model")
+    st.title("Project & Model")
     st.caption(
-        "Visualisasi sederhana untuk melihat konfigurasi model, hasil tuning, "
-        "hasil evaluasi, dan fungsi keanggotaan fuzzy."
+        "Wavelet-ANFIS analysis for hydraulic pump leakage classification."
     )
 
     render_model_metrics()
@@ -28,15 +28,15 @@ def render() -> None:
         tab_tuning,
         tab_evaluation,
         tab_membership,
-        tab_artifact,
+        tab_package,
     ) = st.tabs(
         [
             "Pipeline",
-            "Arsitektur",
+            "Architecture",
             "Tuning r_a",
-            "Evaluasi",
+            "Evaluation",
             "Membership Function",
-            "Artifact",
+            "Model Package",
         ]
     )
 
@@ -55,8 +55,8 @@ def render() -> None:
     with tab_membership:
         render_membership_functions()
 
-    with tab_artifact:
-        render_artifact()
+    with tab_package:
+        render_model_package()
 
 
 def render_model_metrics() -> None:
@@ -71,9 +71,9 @@ def render_model_metrics() -> None:
 def render_project_context() -> None:
     st.markdown(
         """
-        Model pada proyek ini menggabungkan ekstraksi fitur wavelet,
-        Subtractive Clustering, dan ANFIS berbasis PyTorch untuk
-        mengklasifikasikan kondisi kebocoran pompa.
+        This project combines wavelet-based feature extraction, Subtractive
+        Clustering, and a PyTorch-based ANFIS classifier to identify pump
+        leakage conditions from hydraulic-system sensor data.
         """
     )
 
@@ -86,7 +86,7 @@ def render_project_context() -> None:
                 "Nilai": list(FINAL_EVALUATION.values()),
             }
         )
-        st.markdown("**Hasil Evaluasi Final**")
+        st.markdown("**Final Evaluation**")
         st.dataframe(final_table, hide_index=True, use_container_width=True)
 
     with right_column:
@@ -96,44 +96,44 @@ def render_project_context() -> None:
                 "Nilai": list(CV_RESULTS.values()),
             }
         )
-        st.markdown("**Ringkasan Cross-Validation**")
+        st.markdown("**Cross-Validation Summary**")
         st.dataframe(cv_table, hide_index=True, use_container_width=True)
 
 
 def render_pipeline() -> None:
-    st.subheader("Pipeline Model")
+    st.subheader("Model Pipeline")
 
     pipeline_steps = pd.DataFrame(
         [
             {
                 "No": 1,
-                "Tahap": "Load data sensor",
-                "Output": "Matriks sensor PS1, PS2, PS3, TS1, TS2",
+                "Stage": "Sensor data ingestion",
+                "Output": "PS1, PS2, PS3, TS1, and TS2 matrices",
             },
             {
                 "No": 2,
-                "Tahap": "Ekstraksi wavelet",
-                "Output": "15 fitur: mean_cA, std_cA, energy_cD",
+                "Stage": "Wavelet feature extraction",
+                "Output": "15 features: mean_cA, std_cA, energy_cD",
             },
             {
                 "No": 3,
-                "Tahap": "Standardisasi",
-                "Output": "Fitur dalam skala Z-score",
+                "Stage": "Feature standardization",
+                "Output": "Z-score scaled features",
             },
             {
                 "No": 4,
-                "Tahap": "Subtractive Clustering",
-                "Output": "Pusat cluster sebagai rule fuzzy awal",
+                "Stage": "Subtractive Clustering",
+                "Output": "Initial fuzzy rule centers",
             },
             {
                 "No": 5,
-                "Tahap": "Training ANFIS",
-                "Output": "Model klasifikasi 3 kelas pump_leak",
+                "Stage": "ANFIS training",
+                "Output": "Three-class pump_leak classifier",
             },
             {
                 "No": 6,
-                "Tahap": "Evaluasi",
-                "Output": "Accuracy, weighted F1, confusion matrix",
+                "Stage": "Evaluation",
+                "Output": "Accuracy, weighted F1-score, confusion matrix",
             },
         ]
     )
@@ -147,34 +147,37 @@ def render_pipeline() -> None:
 
 
 def render_architecture() -> None:
-    st.subheader("Arsitektur WANFIS")
+    st.subheader("WANFIS Architecture")
 
     left_column, right_column = st.columns([1.1, 1])
 
     with left_column:
         st.markdown(
             """
-            Model menggunakan pendekatan **Wavelet-ANFIS**:
+            The model architecture is designed for compact, interpretable
+            classification:
 
-            1. Data sensor diproses dengan Discrete Wavelet Transform.
-            2. Setiap sensor menghasilkan `mean_cA`, `std_cA`, dan `energy_cD`.
-            3. Total input model adalah 15 fitur.
-            4. Subtractive Clustering membentuk pusat rule fuzzy.
-            5. ANFIS dilatih dengan PyTorch untuk klasifikasi 3 kelas.
+            1. Sensor signals are transformed using Discrete Wavelet Transform.
+            2. Each sensor contributes `mean_cA`, `std_cA`, and `energy_cD`.
+            3. Subtractive Clustering initializes fuzzy rule centers.
+            4. ANFIS optimizes Gaussian membership functions and consequent parameters.
+            5. The final output is a three-class leakage prediction.
             """
         )
 
     with right_column:
         architecture_table = pd.DataFrame(
             [
-                {"Layer": "L1", "Fungsi": "Gaussian membership function"},
-                {"Layer": "L2", "Fungsi": "Firing strength tiap rule"},
-                {"Layer": "L3", "Fungsi": "Normalisasi firing strength"},
-                {"Layer": "L4", "Fungsi": "Consequent Takagi-Sugeno linear"},
-                {"Layer": "L5", "Fungsi": "Output logits untuk 3 kelas"},
+                {"Layer": "L1", "Function": "Gaussian membership function"},
+                {"Layer": "L2", "Function": "Rule firing strength"},
+                {"Layer": "L3", "Function": "Normalized firing strength"},
+                {"Layer": "L4", "Function": "Linear Takagi-Sugeno consequent"},
+                {"Layer": "L5", "Function": "Three-class logits"},
             ]
         )
         st.dataframe(architecture_table, hide_index=True, use_container_width=True)
+
+    render_method_positioning()
 
     st.code(
         "Sensor signals -> Wavelet features -> StandardScaler -> "
@@ -183,12 +186,42 @@ def render_architecture() -> None:
     )
 
 
+def render_method_positioning() -> None:
+    st.markdown("**Method Positioning**")
+
+    comparison_table = pd.DataFrame(
+        [
+            {
+                "Aspect": "Feature representation",
+                "WANFIS Project": "Wavelet-derived compact features",
+                "Purpose": "Reduce high-dimensional time-series signals",
+            },
+            {
+                "Aspect": "Rule initialization",
+                "WANFIS Project": "Subtractive Clustering",
+                "Purpose": "Build data-driven fuzzy rule centers",
+            },
+            {
+                "Aspect": "Learning mechanism",
+                "WANFIS Project": "Gradient-based ANFIS training",
+                "Purpose": "Optimize membership and consequent parameters",
+            },
+            {
+                "Aspect": "Interpretability",
+                "WANFIS Project": "Four fuzzy rules",
+                "Purpose": "Keep the classifier compact and explainable",
+            },
+        ]
+    )
+    st.dataframe(comparison_table, hide_index=True, use_container_width=True)
+
+
 def render_tuning() -> None:
     st.subheader("Tuning Radius Subtractive Clustering")
 
     st.markdown(
-        "`r_a` mengontrol radius cluster. Nilai kecil cenderung menghasilkan "
-        "lebih banyak rule, sedangkan nilai besar membuat rule lebih sedikit."
+        "`r_a` controls cluster granularity. Lower values generally produce more "
+        "rules, while higher values produce a more compact rule base."
     )
 
     results = pd.DataFrame(RA_GRID_RESULTS)
@@ -199,15 +232,15 @@ def render_tuning() -> None:
     ]
     st.line_chart(chart_data)
 
-    render_image_artifact(
-        title="Visualisasi Eksperimen r_a",
-        artifact_key="r_a Experiment",
-        caption="Grafik hasil eksperimen nilai radius cluster dari notebook.",
+    render_visual_asset(
+        title="r_a Experiment",
+        asset_key="r_a Experiment",
+        caption="Cross-validation comparison across candidate cluster radii.",
     )
 
 
 def render_evaluation() -> None:
-    st.subheader("Evaluasi Model Final")
+    st.subheader("Final Model Evaluation")
 
     metrics = pd.DataFrame(
         {
@@ -223,23 +256,23 @@ def render_evaluation() -> None:
 
         st.markdown(
             """
-            Kelas 1 memiliki akurasi paling rendah dibanding kelas lain.
-            Ini masuk akal karena kebocoran lemah biasanya lebih sulit
-            dibedakan dari kondisi normal atau kebocoran parah.
+            Class 1 has the lowest per-class accuracy. Weak leakage is typically
+            more difficult to separate because its signal profile can overlap
+            with normal and severe leakage conditions.
             """
         )
 
     with right_column:
-        render_image_artifact(
+        render_visual_asset(
             title="Evaluation Results",
-            artifact_key="Evaluation Results",
-            caption="Confusion matrix dan ringkasan evaluasi dari notebook.",
+            asset_key="Evaluation Results",
+            caption="Confusion matrix and final evaluation summary.",
         )
 
-    render_image_artifact(
+    render_visual_asset(
         title="Training Curves",
-        artifact_key="Training Curves",
-        caption="Kurva training yang menunjukkan dinamika loss dan akurasi.",
+        asset_key="Training Curves",
+        caption="Training dynamics for loss and accuracy.",
     )
 
 
@@ -248,53 +281,52 @@ def render_membership_functions() -> None:
 
     st.markdown(
         """
-        Fungsi keanggotaan Gaussian diinisialisasi dari pusat cluster hasil
-        Subtractive Clustering. Setelah training, parameter `mean` dan `sigma`
-        dapat bergeser mengikuti optimasi gradient-based.
+        Gaussian membership functions are initialized from Subtractive
+        Clustering centers. During training, `mean` and `sigma` are adjusted
+        through gradient-based optimization.
         """
     )
 
-    render_image_artifact(
+    render_visual_asset(
         title="Membership Functions",
-        artifact_key="Membership Functions",
-        caption="Perbandingan membership function sebelum dan sesudah training.",
+        asset_key="Membership Functions",
+        caption="Membership functions before and after ANFIS training.",
     )
 
 
-def render_artifact() -> None:
-    st.subheader("Model Artifact")
+def render_model_package() -> None:
+    st.subheader("Model Package")
 
-    if MODEL_ARTIFACT_PATH.exists():
-        size_kb = MODEL_ARTIFACT_PATH.stat().st_size / 1024
-        st.success("Model artifact tersedia.")
+    if MODEL_PACKAGE_PATH.exists():
+        size_kb = MODEL_PACKAGE_PATH.stat().st_size / 1024
 
-        artifact_table = pd.DataFrame(
+        package_table = pd.DataFrame(
             [
-                {"Properti": "Path", "Nilai": str(MODEL_ARTIFACT_PATH)},
-                {"Properti": "Ukuran", "Nilai": f"{size_kb:.2f} KB"},
-                {"Properti": "Format", "Nilai": "PyTorch checkpoint (.pth)"},
+                {"Property": "Package", "Value": MODEL_PACKAGE_NAME},
+                {"Property": "Size", "Value": f"{size_kb:.2f} KB"},
+                {"Property": "Format", "Value": "PyTorch checkpoint (.pth)"},
+                {"Property": "Repository status", "Value": "Available"},
             ]
         )
-        st.dataframe(artifact_table, hide_index=True, use_container_width=True)
+        st.dataframe(package_table, hide_index=True, use_container_width=True)
 
         st.markdown(
             """
-            Checkpoint model menyimpan bobot ANFIS serta metadata penting seperti
-            `best_ra`, jumlah input, jumlah rule, nama fitur, scaler, dan pusat
-            cluster. Metadata ini diperlukan agar inference memakai preprocessing
-            yang sama dengan training.
+            The checkpoint stores ANFIS weights and metadata required for
+            consistent inference, including `best_ra`, feature names, scaler,
+            class labels, and Subtractive Clustering centers.
             """
         )
     else:
-        st.warning("Model artifact belum ditemukan di folder `models`.")
+        st.warning("Model package is not available in the repository.")
 
 
-def render_image_artifact(title: str, artifact_key: str, caption: str) -> None:
-    image_path = IMAGE_ARTIFACTS[artifact_key]
+def render_visual_asset(title: str, asset_key: str, caption: str) -> None:
+    image_path = VISUAL_ASSETS[asset_key]
 
     if image_path.exists():
         st.markdown(f"**{title}**")
         st.image(str(image_path), use_container_width=True)
         st.caption(caption)
     else:
-        st.warning(f"File gambar belum ditemukan: `{image_path.name}`")
+        st.warning(f"Visual asset is not available: `{image_path.name}`")

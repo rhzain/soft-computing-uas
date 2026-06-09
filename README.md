@@ -172,9 +172,10 @@ Notebook melakukan beberapa analisis evaluasi:
 Visualisasi yang dihasilkan:
 
 ```text
-training_curves.png
-evaluation_results.png
-membership_functions.png
+assets/images/training_curves.png
+assets/images/evaluation_results.png
+assets/images/membership_functions.png
+assets/images/ra_experiment.png
 ```
 
 Analisis utama yang dilihat:

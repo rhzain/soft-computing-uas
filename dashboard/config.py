@@ -3,18 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 
 
-APP_TITLE = "WANFIS Hydraulic System"
+APP_TITLE = "WANFIS Hydraulic Monitoring"
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+ASSETS_DIR = BASE_DIR / "assets"
+IMAGE_DIR = ASSETS_DIR / "images"
 DATA_DIR = BASE_DIR / "data"
 MODEL_DIR = BASE_DIR / "models"
-MODEL_ARTIFACT_PATH = MODEL_DIR / "anfis_subtractive_best_model.pth"
+MODEL_PACKAGE_NAME = "anfis_subtractive_best_model.pth"
+MODEL_PACKAGE_PATH = MODEL_DIR / MODEL_PACKAGE_NAME
 
-IMAGE_ARTIFACTS = {
-    "Training Curves": BASE_DIR / "training_curves.png",
-    "Evaluation Results": BASE_DIR / "evaluation_results.png",
-    "Membership Functions": BASE_DIR / "membership_functions.png",
-    "r_a Experiment": BASE_DIR / "ra_experiment.png",
+VISUAL_ASSETS = {
+    "Training Curves": IMAGE_DIR / "training_curves.png",
+    "Evaluation Results": IMAGE_DIR / "evaluation_results.png",
+    "Membership Functions": IMAGE_DIR / "membership_functions.png",
+    "r_a Experiment": IMAGE_DIR / "ra_experiment.png",
 }
 
 SENSOR_LIST = ["PS1", "PS2", "PS3", "TS1", "TS2"]
@@ -27,9 +30,9 @@ CLASS_LABELS = {
 }
 
 NAVIGATION_ITEMS = [
-    "Anomaly Simulation",
+    "Project & Model",
     "Dataset Explorer",
-    "Visualization Model",
+    "Anomaly Simulation",
 ]
 
 PROJECT_METRICS = {

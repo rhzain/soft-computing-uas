@@ -1,1 +1,1 @@
-"""Streamlit dashboard package for the WANFIS hydraulic-system project."""
+"""Streamlit application package for the WANFIS hydraulic-system project."""

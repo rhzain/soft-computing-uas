@@ -11,16 +11,15 @@ from dashboard.pages import (
 
 
 PAGES = {
-    "Anomaly Simulation": anomaly_simulation.render,
+    "Project & Model": model_visualization.render,
     "Dataset Explorer": dataset_explorer.render,
-    "Visualization Model": model_visualization.render,
+    "Anomaly Simulation": anomaly_simulation.render,
 }
 
 
 def configure_page() -> None:
     st.set_page_config(
         page_title=APP_TITLE,
-        page_icon=":bar_chart:",
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -46,9 +45,9 @@ def configure_page() -> None:
 
 def render_sidebar() -> str:
     st.sidebar.title(APP_TITLE)
-    st.sidebar.caption("Visualisasi model dan simulasi anomali")
+    st.sidebar.caption("Hydraulic pump leakage classification")
     return st.sidebar.radio(
-        "Menu",
+        "Navigation",
         NAVIGATION_ITEMS,
         index=0,
     )

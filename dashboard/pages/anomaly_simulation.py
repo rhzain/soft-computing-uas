@@ -20,8 +20,7 @@ ANOMALY_TYPES = [
 def render() -> None:
     st.title("Anomaly Simulation")
     st.caption(
-        "Simulasi sederhana untuk melihat dampak anomali buatan pada sinyal "
-        "sensor mentah."
+        "Interactive signal perturbation analysis for selected hydraulic sensor cycles."
     )
 
     render_simulation_information()
@@ -36,7 +35,7 @@ def render() -> None:
 
 
 def render_input_controls() -> tuple[str, int, int]:
-    st.subheader("Pilih Data Sinyal")
+    st.subheader("Signal Selection")
 
     control_columns = st.columns([1, 1, 1])
     sensor = control_columns[0].selectbox("Sensor", SENSOR_LIST)
@@ -53,7 +52,7 @@ def render_input_controls() -> tuple[str, int, int]:
     point_options = [250, 500, 1000, 2000, time_steps]
     point_options = sorted(set(option for option in point_options if option <= time_steps))
     max_points = control_columns[2].selectbox(
-        "Maksimum titik grafik",
+        "Maximum chart points",
         options=point_options,
         index=min(2, len(point_options) - 1),
     )
@@ -62,59 +61,59 @@ def render_input_controls() -> tuple[str, int, int]:
 
 
 def render_anomaly_controls(original_signal: np.ndarray) -> tuple[np.ndarray, dict]:
-    st.subheader("Konfigurasi Anomali")
+    st.subheader("Anomaly Configuration")
 
-    anomaly_type = st.selectbox("Jenis anomali", ANOMALY_TYPES)
+    anomaly_type = st.selectbox("Anomaly type", ANOMALY_TYPES)
     signal_std = float(np.std(original_signal)) or 1.0
 
     if anomaly_type == "Noise":
-        intensity = st.slider("Intensitas noise (% dari standar deviasi)", 0, 100, 20)
+        intensity = st.slider("Noise intensity (% of signal standard deviation)", 0, 100, 20)
         seed = st.number_input("Random seed", min_value=0, max_value=9999, value=42)
         modified_signal = add_noise(original_signal, signal_std, intensity, int(seed))
         config = {
-            "Jenis": anomaly_type,
-            "Intensitas": f"{intensity}% std",
+            "Type": anomaly_type,
+            "Intensity": f"{intensity}% std",
             "Seed": seed,
         }
 
     elif anomaly_type == "Spike":
         col_a, col_b = st.columns(2)
-        position = col_a.slider("Posisi spike (% time)", 0, 100, 50)
-        magnitude = col_b.slider("Magnitudo spike (x standar deviasi)", 1.0, 10.0, 4.0)
-        width = st.slider("Lebar spike (% panjang sinyal)", 1, 20, 4)
+        position = col_a.slider("Spike position (% of time axis)", 0, 100, 50)
+        magnitude = col_b.slider("Spike magnitude (x standard deviation)", 1.0, 10.0, 4.0)
+        width = st.slider("Spike width (% of signal length)", 1, 20, 4)
         modified_signal = add_spike(original_signal, signal_std, position, magnitude, width)
         config = {
-            "Jenis": anomaly_type,
-            "Posisi": f"{position}% time",
-            "Magnitudo": f"{magnitude:.1f}x std",
-            "Lebar": f"{width}% panjang sinyal",
+            "Type": anomaly_type,
+            "Position": f"{position}% time",
+            "Magnitude": f"{magnitude:.1f}x std",
+            "Width": f"{width}% signal length",
         }
 
     elif anomaly_type == "Drift":
         col_a, col_b = st.columns(2)
-        direction = col_a.selectbox("Arah drift", ["Naik", "Turun"])
-        magnitude = col_b.slider("Magnitudo akhir (x standar deviasi)", 0.1, 5.0, 1.5)
+        direction = col_a.selectbox("Drift direction", ["Increase", "Decrease"])
+        magnitude = col_b.slider("Final magnitude (x standard deviation)", 0.1, 5.0, 1.5)
         modified_signal = add_drift(original_signal, signal_std, direction, magnitude)
         config = {
-            "Jenis": anomaly_type,
-            "Arah": direction,
-            "Magnitudo akhir": f"{magnitude:.1f}x std",
+            "Type": anomaly_type,
+            "Direction": direction,
+            "Final magnitude": f"{magnitude:.1f}x std",
         }
 
     elif anomaly_type == "Offset":
-        magnitude = st.slider("Offset (x standar deviasi)", -5.0, 5.0, 1.0)
+        magnitude = st.slider("Offset (x standard deviation)", -5.0, 5.0, 1.0)
         modified_signal = add_offset(original_signal, signal_std, magnitude)
         config = {
-            "Jenis": anomaly_type,
+            "Type": anomaly_type,
             "Offset": f"{magnitude:.1f}x std",
         }
 
     else:
-        factor = st.slider("Faktor skala", 0.1, 3.0, 1.2)
+        factor = st.slider("Scale factor", 0.1, 3.0, 1.2)
         modified_signal = scale_signal(original_signal, factor)
         config = {
-            "Jenis": anomaly_type,
-            "Faktor skala": f"{factor:.2f}x",
+            "Type": anomaly_type,
+            "Scale factor": f"{factor:.2f}x",
         }
 
     return modified_signal, config
@@ -153,7 +152,7 @@ def add_drift(
     direction: str,
     magnitude: float,
 ) -> np.ndarray:
-    sign = 1 if direction == "Naik" else -1
+    sign = 1 if direction == "Increase" else -1
     drift = np.linspace(0, sign * signal_std * magnitude, len(signal))
     return signal + drift
 
@@ -173,7 +172,7 @@ def render_cycle_context(cycle_index: int) -> None:
 
     context_columns = st.columns(4)
     context_columns[0].metric("Cycle", cycle_index)
-    context_columns[1].metric("Kelas Aktual", pump_class)
+    context_columns[1].metric("Actual Class", pump_class)
     context_columns[2].metric("Label", CLASS_LABELS[pump_class])
     context_columns[3].metric("Stable Flag", int(row["stable_flag"]))
 
@@ -183,12 +182,12 @@ def render_signal_comparison(
     modified_signal: np.ndarray,
     max_points: int,
 ) -> None:
-    st.subheader("Perbandingan Sinyal")
+    st.subheader("Signal Comparison")
 
     chart_data = build_chart_data(original_signal, modified_signal, max_points)
     st.line_chart(chart_data, x="time_step", y=["Original", "Simulated"])
 
-    with st.expander("Lihat data grafik"):
+    with st.expander("View chart data"):
         st.dataframe(chart_data, hide_index=True, use_container_width=True)
 
 
@@ -214,7 +213,7 @@ def render_impact_summary(
     modified_signal: np.ndarray,
     anomaly_config: dict,
 ) -> None:
-    st.subheader("Ringkasan Dampak")
+    st.subheader("Impact Summary")
 
     delta = modified_signal - original_signal
     anomaly_score = calculate_anomaly_score(original_signal, delta)
@@ -239,7 +238,7 @@ def render_impact_summary(
         config_table = pd.DataFrame(
             {
                 "Parameter": list(anomaly_config.keys()),
-                "Nilai": list(anomaly_config.values()),
+                "Value": [str(value) for value in anomaly_config.values()],
             }
         )
         st.dataframe(config_table, hide_index=True, use_container_width=True)
@@ -271,7 +270,7 @@ def build_statistics_table(
     ]:
         rows.append(
             {
-                "Sinyal": label,
+                "Signal": label,
                 "Mean": np.mean(signal),
                 "Std": np.std(signal),
                 "Min": np.min(signal),
@@ -287,12 +286,11 @@ def build_statistics_table(
 
 
 def render_simulation_information() -> None:
-    st.subheader("Cara Membaca Simulasi")
+    st.subheader("Simulation Guide")
 
     st.info(
-        "Simulasi ini masih berfokus pada perubahan sinyal sensor. Prediksi "
-        "ulang menggunakan model WANFIS bisa ditambahkan setelah pipeline "
-        "inference model disiapkan."
+        "This page quantifies how synthetic perturbations affect sensor signals. "
+        "It is designed for signal-level analysis, not live model inference."
     )
 
     guide_columns = st.columns(2)
@@ -300,25 +298,25 @@ def render_simulation_information() -> None:
     with guide_columns[0]:
         st.markdown(
             """
-            **Jenis anomali**
+            **Anomaly types**
 
-            - **Noise**: gangguan acak pada seluruh sinyal.
-            - **Spike**: lonjakan lokal pada titik waktu tertentu.
-            - **Drift**: perubahan naik atau turun perlahan sepanjang cycle.
-            - **Offset**: pergeseran seluruh sinyal dengan nilai konstan.
-            - **Scale**: perubahan amplitudo seluruh sinyal.
+            - **Noise**: random disturbance across the signal.
+            - **Spike**: localized transient increase.
+            - **Drift**: gradual increase or decrease across a cycle.
+            - **Offset**: constant shift applied to all points.
+            - **Scale**: amplitude change across the full signal.
             """
         )
 
     with guide_columns[1]:
         st.markdown(
             """
-            **Output yang perlu diperhatikan**
+            **Primary outputs**
 
-            - Grafik `Original` vs `Simulated`.
-            - `Mean |Delta|` untuk rata-rata besar perubahan.
-            - `Max |Delta|` untuk perubahan terbesar.
-            - `Energy Delta` untuk perubahan energi sinyal.
-            - `Anomaly Score` sebagai indikator cepat, bukan skor model.
+            - `Original` and `Simulated` signal curves.
+            - `Mean |Delta|` for average absolute deviation.
+            - `Max |Delta|` for peak deviation.
+            - `Energy Delta` for signal-energy shift.
+            - `Anomaly Score` as a normalized perturbation indicator.
             """
         )
