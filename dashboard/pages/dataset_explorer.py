@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from dashboard.config import CLASS_LABELS, SENSOR_LIST
+from dashboard.config import SENSOR_LIST
 from dashboard.data import get_dataset_summary, load_profile, load_sensor_data
 
 
@@ -42,7 +42,7 @@ def render_dataset_metrics(summary) -> None:
     )
     metric_columns[1].metric("Selected Sensors", len(SENSOR_LIST))
     metric_columns[2].metric("Target", "pump_leak")
-    metric_columns[3].metric("Classes", len(CLASS_LABELS))
+    metric_columns[3].metric("Classes", len(summary.class_distribution))
     metric_columns[4].metric("Wavelet Features", "15")
 
 
@@ -63,8 +63,7 @@ def render_dataset_summary(summary) -> None:
     with left_column:
         class_table = pd.DataFrame(
             {
-                "Class": list(CLASS_LABELS.keys()),
-                "Meaning": list(CLASS_LABELS.values()),
+                "Class": summary.class_distribution["class"],
             }
         )
         st.markdown("**Target Classes**")
@@ -143,9 +142,8 @@ def render_target_distribution(class_distribution: pd.DataFrame) -> None:
 
     with right_column:
         table = class_distribution.copy()
-        table["label"] = table["class"].map(CLASS_LABELS)
-        table = table[["class", "label", "count", "percentage"]]
-        table.columns = ["Class", "Label", "Count", "Percentage (%)"]
+        table = table[["class", "count", "percentage"]]
+        table.columns = ["Class", "Count", "Percentage (%)"]
         st.dataframe(table, hide_index=True, use_container_width=True)
 
     st.markdown(

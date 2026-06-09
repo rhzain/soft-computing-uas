@@ -23,12 +23,6 @@ VISUAL_ASSETS = {
 SENSOR_LIST = ["PS1", "PS2", "PS3", "TS1", "TS2"]
 TARGET_COLUMN = "pump_leak"
 
-CLASS_LABELS = {
-    0: "Normal / tidak ada kebocoran",
-    1: "Kebocoran lemah",
-    2: "Kebocoran parah",
-}
-
 NAVIGATION_ITEMS = [
     "Project & Model",
     "Dataset Explorer",

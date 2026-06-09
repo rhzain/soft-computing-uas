@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from io import StringIO
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-from dashboard.config import CLASS_LABELS, SENSOR_LIST
+from dashboard.config import SENSOR_LIST
 from dashboard.data import load_profile, load_sensor_data
+from dashboard.inference import DetectionResult, predict_cycle
 
 
 ANOMALY_TYPES = [
@@ -16,107 +19,343 @@ ANOMALY_TYPES = [
     "Scale",
 ]
 
+SCENARIOS = [
+    {"Name": "Normal", "Class": 0, "Default Cycle": 10},
+    {"Name": "Weak Leakage", "Class": 1, "Default Cycle": 251},
+    {"Name": "Severe Leakage", "Class": 2, "Default Cycle": 210},
+]
+
+ALARM_STYLES = {
+    0: {
+        "Status": "SYSTEM HEALTHY",
+        "Background": "#ecfdf5",
+        "Border": "#10b981",
+        "Text": "#065f46",
+    },
+    1: {
+        "Status": "WARNING: WEAK LEAKAGE DETECTED",
+        "Background": "#fffbeb",
+        "Border": "#f59e0b",
+        "Text": "#92400e",
+    },
+    2: {
+        "Status": "CRITICAL: SEVERE LEAKAGE DETECTED",
+        "Background": "#fef2f2",
+        "Border": "#ef4444",
+        "Text": "#991b1b",
+    },
+}
+
+CHART_MAX_POINTS = 6000
+
 
 def render() -> None:
-    st.title("Anomaly Simulation")
-    st.caption(
-        "Interactive signal perturbation analysis for selected hydraulic sensor cycles."
+    st.title("WANFIS Detection Simulator")
+    st.caption("Hydraulic pump leakage classification from wavelet sensor features.")
+
+    base_signals, base_context = render_base_input_section()
+    if not base_signals:
+        return
+
+    simulation_controls = render_simulation_controls()
+    results_table, generated_signals = generate_detection_sequence(
+        base_signals,
+        simulation_controls,
+    )
+    if results_table.empty:
+        return
+
+    final_result = generated_signals[-1]["result"]
+    render_detection_outputs(
+        final_result,
+        results_table,
+        base_context,
+        base_signals,
+        generated_signals[-1]["signals"],
+        simulation_controls,
     )
 
-    render_simulation_information()
 
-    sensor, cycle_index, max_points = render_input_controls()
-    original_signal = load_sensor_data(sensor).iloc[cycle_index].to_numpy(dtype=float)
-    modified_signal, anomaly_config = render_anomaly_controls(original_signal)
+def render_base_input_section() -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    st.subheader("Input Data")
 
-    render_cycle_context(cycle_index)
-    render_signal_comparison(original_signal, modified_signal, max_points)
-    render_impact_summary(original_signal, modified_signal, anomaly_config)
+    input_source = st.radio(
+        "Input source",
+        options=["Dataset cycle", "Upload CSV"],
+        horizontal=True,
+    )
+
+    if input_source == "Dataset cycle":
+        return render_dataset_cycle_input()
+    return render_upload_input()
 
 
-def render_input_controls() -> tuple[str, int, int]:
-    st.subheader("Signal Selection")
-
-    control_columns = st.columns([1, 1, 1])
-    sensor = control_columns[0].selectbox("Sensor", SENSOR_LIST)
-
-    sensor_data = load_sensor_data(sensor)
-    cycle_index = control_columns[1].slider(
+def render_dataset_cycle_input() -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    input_columns = st.columns([1, 1])
+    scenario_name = input_columns[0].selectbox(
+        "Scenario",
+        options=[scenario["Name"] for scenario in SCENARIOS],
+    )
+    scenario = next(item for item in SCENARIOS if item["Name"] == scenario_name)
+    cycle_options = get_cycle_options(int(scenario["Class"]))
+    cycle_index = input_columns[1].selectbox(
         "Cycle",
-        min_value=0,
-        max_value=len(sensor_data) - 1,
-        value=0,
+        options=cycle_options,
+        index=get_default_cycle_index(scenario, cycle_options),
+        format_func=lambda value: f"Cycle {value}",
     )
 
-    time_steps = sensor_data.shape[1]
-    point_options = [250, 500, 1000, 2000, time_steps]
-    point_options = sorted(set(option for option in point_options if option <= time_steps))
-    max_points = control_columns[2].selectbox(
-        "Maximum chart points",
-        options=point_options,
-        index=min(2, len(point_options) - 1),
+    profile = load_profile()
+    actual_class = int(profile.iloc[int(cycle_index)]["pump_leak"])
+    context = {
+        "Source": "Dataset cycle",
+        "Cycle": int(cycle_index),
+        "Actual Class": actual_class,
+    }
+    return load_cycle_signals(int(cycle_index)), context
+
+
+def render_upload_input() -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    template_csv = build_upload_template_csv()
+    st.download_button(
+        "Download CSV Template",
+        data=template_csv,
+        file_name="wanfis_cycle_template.csv",
+        mime="text/csv",
     )
 
-    return sensor, cycle_index, int(max_points)
+    uploaded_file = st.file_uploader(
+        "Upload one raw cycle CSV",
+        type=["csv"],
+    )
+    if uploaded_file is None:
+        st.info("Upload a CSV with columns PS1, PS2, PS3, TS1, and TS2.")
+        return {}, {}
+
+    try:
+        sensor_signals = parse_uploaded_cycle(uploaded_file)
+    except ValueError as error:
+        st.error(str(error))
+        return {}, {}
+
+    context = {
+        "Source": "Uploaded CSV",
+        "Cycle": "-",
+        "Actual Class": "-",
+    }
+    return sensor_signals, context
 
 
-def render_anomaly_controls(original_signal: np.ndarray) -> tuple[np.ndarray, dict]:
-    st.subheader("Anomaly Configuration")
+def render_simulation_controls() -> dict[str, object]:
+    st.subheader("Synthetic What-if Controls")
 
-    anomaly_type = st.selectbox("Anomaly type", ANOMALY_TYPES)
-    signal_std = float(np.std(original_signal)) or 1.0
+    control_columns = st.columns([1, 1])
+    generated_cycles = control_columns[0].slider("Generated cycles", 1, 80, 1)
+    apply_anomaly = control_columns[1].checkbox("Apply synthetic anomaly", value=False)
+
+    anomaly_scope = "Selected sensor"
+    anomaly_controls: dict[str, object] = {}
+    anomaly_config: dict[str, object] = {"Mode": "Original baseline"}
+
+    if apply_anomaly:
+        anomaly_scope = st.radio(
+            "Perturbation target",
+            options=["Selected sensor", "All sensors"],
+            horizontal=True,
+        )
+        target_sensor = SENSOR_LIST[0]
+        if anomaly_scope == "Selected sensor":
+            target_sensor = st.selectbox("Perturbation sensor", SENSOR_LIST)
+        anomaly_controls, anomaly_config = render_anomaly_controls()
+    else:
+        target_sensor = SENSOR_LIST[0]
+
+    return {
+        "generated_cycles": int(generated_cycles),
+        "apply_anomaly": apply_anomaly,
+        "anomaly_scope": anomaly_scope,
+        "target_sensor": target_sensor,
+        "anomaly_controls": anomaly_controls,
+        "anomaly_config": anomaly_config,
+    }
+
+
+def render_anomaly_controls() -> tuple[dict[str, object], dict[str, object]]:
+    control_columns = st.columns([1, 1, 1])
+    anomaly_type = control_columns[0].selectbox("Anomaly type", ANOMALY_TYPES)
+    controls: dict[str, object] = {"Type": anomaly_type}
+    config: dict[str, object] = {"Mode": "Synthetic perturbation", "Type": anomaly_type}
 
     if anomaly_type == "Noise":
-        intensity = st.slider("Noise intensity (% of signal standard deviation)", 0, 100, 20)
-        seed = st.number_input("Random seed", min_value=0, max_value=9999, value=42)
-        modified_signal = add_noise(original_signal, signal_std, intensity, int(seed))
-        config = {
-            "Type": anomaly_type,
-            "Intensity": f"{intensity}% std",
-            "Seed": seed,
-        }
+        intensity = control_columns[1].slider(
+            "Final noise intensity (% std)",
+            min_value=0,
+            max_value=100,
+            value=20,
+        )
+        seed = control_columns[2].number_input(
+            "Random seed",
+            min_value=0,
+            max_value=9999,
+            value=42,
+        )
+        controls.update({"Intensity": intensity, "Seed": int(seed)})
+        config.update({"Final intensity": f"{intensity}% std", "Seed": int(seed)})
 
     elif anomaly_type == "Spike":
-        col_a, col_b = st.columns(2)
-        position = col_a.slider("Spike position (% of time axis)", 0, 100, 50)
-        magnitude = col_b.slider("Spike magnitude (x standard deviation)", 1.0, 10.0, 4.0)
-        width = st.slider("Spike width (% of signal length)", 1, 20, 4)
-        modified_signal = add_spike(original_signal, signal_std, position, magnitude, width)
-        config = {
-            "Type": anomaly_type,
-            "Position": f"{position}% time",
-            "Magnitude": f"{magnitude:.1f}x std",
-            "Width": f"{width}% signal length",
-        }
+        position = control_columns[1].slider("Spike position (% time)", 0, 100, 50)
+        magnitude = control_columns[2].slider("Final spike magnitude (x std)", 1.0, 10.0, 4.0)
+        width = st.slider("Spike width (% length)", 1, 20, 4)
+        controls.update(
+            {
+                "Position": position,
+                "Magnitude": magnitude,
+                "Width": width,
+            }
+        )
+        config.update(
+            {
+                "Position": f"{position}% time",
+                "Final magnitude": f"{magnitude:.1f}x std",
+                "Width": f"{width}% length",
+            }
+        )
 
     elif anomaly_type == "Drift":
-        col_a, col_b = st.columns(2)
-        direction = col_a.selectbox("Drift direction", ["Increase", "Decrease"])
-        magnitude = col_b.slider("Final magnitude (x standard deviation)", 0.1, 5.0, 1.5)
-        modified_signal = add_drift(original_signal, signal_std, direction, magnitude)
-        config = {
-            "Type": anomaly_type,
-            "Direction": direction,
-            "Final magnitude": f"{magnitude:.1f}x std",
-        }
+        direction = control_columns[1].selectbox("Drift direction", ["Increase", "Decrease"])
+        magnitude = control_columns[2].slider("Final magnitude (x std)", 0.1, 5.0, 1.5)
+        controls.update({"Direction": direction, "Magnitude": magnitude})
+        config.update(
+            {
+                "Direction": direction,
+                "Final magnitude": f"{magnitude:.1f}x std",
+            }
+        )
 
     elif anomaly_type == "Offset":
-        magnitude = st.slider("Offset (x standard deviation)", -5.0, 5.0, 1.0)
-        modified_signal = add_offset(original_signal, signal_std, magnitude)
-        config = {
-            "Type": anomaly_type,
-            "Offset": f"{magnitude:.1f}x std",
-        }
+        magnitude = control_columns[1].slider("Final offset (x std)", -5.0, 5.0, -1.0)
+        controls.update({"Magnitude": magnitude})
+        config.update({"Final offset": f"{magnitude:.1f}x std"})
 
     else:
-        factor = st.slider("Scale factor", 0.1, 3.0, 1.2)
-        modified_signal = scale_signal(original_signal, factor)
-        config = {
-            "Type": anomaly_type,
-            "Scale factor": f"{factor:.2f}x",
-        }
+        factor = control_columns[1].slider("Final scale factor", 0.1, 3.0, 1.2)
+        controls.update({"Factor": factor})
+        config.update({"Final scale factor": f"{factor:.2f}x"})
 
-    return modified_signal, config
+    return controls, config
+
+
+def generate_detection_sequence(
+    base_signals: dict[str, np.ndarray],
+    controls: dict[str, object],
+) -> tuple[pd.DataFrame, list[dict[str, object]]]:
+    generated_cycles = int(controls["generated_cycles"])
+    rows = []
+    generated_signals = []
+
+    progress = None
+    if generated_cycles > 1:
+        progress = st.progress(0, text="Running DWT and WANFIS inference...")
+
+    for cycle_offset in range(generated_cycles):
+        severity = resolve_cycle_severity(cycle_offset, generated_cycles, controls)
+        model_input_signals = build_model_input_signals(base_signals, controls, severity)
+        result = run_detection_safely(model_input_signals)
+        if result is None:
+            if progress is not None:
+                progress.empty()
+            return pd.DataFrame(), []
+
+        rows.append(build_result_row(cycle_offset, severity, result))
+        generated_signals.append({"signals": model_input_signals, "result": result})
+
+        if progress is not None:
+            progress.progress(
+                (cycle_offset + 1) / generated_cycles,
+                text=f"Running DWT and WANFIS inference... {cycle_offset + 1}/{generated_cycles}",
+            )
+
+    if progress is not None:
+        progress.empty()
+
+    return pd.DataFrame(rows), generated_signals
+
+
+def resolve_cycle_severity(
+    cycle_offset: int,
+    generated_cycles: int,
+    controls: dict[str, object],
+) -> float:
+    if not controls["apply_anomaly"]:
+        return 0.0
+    if generated_cycles == 1:
+        return 1.0
+    return cycle_offset / (generated_cycles - 1)
+
+
+def build_model_input_signals(
+    base_signals: dict[str, np.ndarray],
+    controls: dict[str, object],
+    severity: float,
+) -> dict[str, np.ndarray]:
+    model_input_signals = {
+        sensor: signal.copy()
+        for sensor, signal in base_signals.items()
+    }
+    if not controls["apply_anomaly"]:
+        return model_input_signals
+
+    target_sensors = (
+        SENSOR_LIST
+        if controls["anomaly_scope"] == "All sensors"
+        else [str(controls["target_sensor"])]
+    )
+
+    for sensor_position, sensor in enumerate(target_sensors):
+        model_input_signals[sensor] = apply_anomaly(
+            base_signals[sensor],
+            controls["anomaly_controls"],
+            severity,
+            sensor_position,
+        )
+
+    return model_input_signals
+
+
+def apply_anomaly(
+    signal: np.ndarray,
+    controls: dict[str, object],
+    severity: float,
+    sensor_position: int,
+) -> np.ndarray:
+    signal_std = float(np.std(signal)) or 1.0
+    anomaly_type = str(controls["Type"])
+
+    if anomaly_type == "Noise":
+        return add_noise(
+            signal,
+            signal_std,
+            int(float(controls["Intensity"]) * severity),
+            int(controls["Seed"]) + sensor_position,
+        )
+    if anomaly_type == "Spike":
+        return add_spike(
+            signal,
+            signal_std,
+            int(controls["Position"]),
+            float(controls["Magnitude"]) * severity,
+            int(controls["Width"]),
+        )
+    if anomaly_type == "Drift":
+        return add_drift(
+            signal,
+            signal_std,
+            str(controls["Direction"]),
+            float(controls["Magnitude"]) * severity,
+        )
+    if anomaly_type == "Offset":
+        return add_offset(signal, signal_std, float(controls["Magnitude"]) * severity)
+    return scale_signal(signal, 1.0 + ((float(controls["Factor"]) - 1.0) * severity))
 
 
 def add_noise(
@@ -165,76 +404,190 @@ def scale_signal(signal: np.ndarray, factor: float) -> np.ndarray:
     return signal * factor
 
 
-def render_cycle_context(cycle_index: int) -> None:
-    profile = load_profile()
-    row = profile.iloc[cycle_index]
-    pump_class = int(row["pump_leak"])
+def run_detection_safely(
+    sensor_signals: dict[str, np.ndarray],
+) -> DetectionResult | None:
+    try:
+        return predict_cycle(sensor_signals)
+    except FileNotFoundError as error:
+        st.error(str(error))
+    except Exception as error:
+        st.error(f"Unable to run WANFIS inference: {error}")
+    return None
 
-    context_columns = st.columns(4)
-    context_columns[0].metric("Cycle", cycle_index)
-    context_columns[1].metric("Actual Class", pump_class)
-    context_columns[2].metric("Label", CLASS_LABELS[pump_class])
-    context_columns[3].metric("Stable Flag", int(row["stable_flag"]))
+
+def build_result_row(
+    cycle_offset: int,
+    severity: float,
+    result: DetectionResult,
+) -> dict[str, object]:
+    probabilities = result.probabilities.set_index("Class")["Probability"]
+    return {
+        "Generated Cycle": cycle_offset + 1,
+        "Severity": severity,
+        "Predicted Class": result.predicted_class,
+        "Status": ALARM_STYLES[result.predicted_class]["Status"],
+        "Confidence": result.confidence,
+        "P Normal": float(probabilities.loc[0]),
+        "P Weak Leakage": float(probabilities.loc[1]),
+        "P Severe Leakage": float(probabilities.loc[2]),
+    }
 
 
-def render_signal_comparison(
-    original_signal: np.ndarray,
-    modified_signal: np.ndarray,
-    max_points: int,
+def render_detection_outputs(
+    final_result: DetectionResult,
+    results_table: pd.DataFrame,
+    base_context: dict[str, object],
+    base_signals: dict[str, np.ndarray],
+    final_signals: dict[str, np.ndarray],
+    controls: dict[str, object],
 ) -> None:
-    st.subheader("Signal Comparison")
+    render_alarm_panel(final_result)
+    render_input_context(base_context, final_result)
 
-    chart_data = build_chart_data(original_signal, modified_signal, max_points)
-    st.line_chart(chart_data, x="time_step", y=["Original", "Simulated"])
+    if len(results_table) > 1:
+        render_multi_cycle_summary(results_table)
+        render_probability_trend(results_table)
+    else:
+        render_probability_chart(final_result)
 
-    with st.expander("View chart data"):
-        st.dataframe(chart_data, hide_index=True, use_container_width=True)
-
-
-def build_chart_data(
-    original_signal: np.ndarray,
-    modified_signal: np.ndarray,
-    max_points: int,
-) -> pd.DataFrame:
-    step = max(1, len(original_signal) // max_points)
-    time_steps = np.arange(len(original_signal))[::step]
-
-    return pd.DataFrame(
-        {
-            "time_step": time_steps,
-            "Original": original_signal[::step],
-            "Simulated": modified_signal[::step],
-        }
-    )
+    render_signal_section(base_signals, final_signals)
+    render_feature_tables(final_result, controls)
+    render_results_table(results_table)
 
 
-def render_impact_summary(
-    original_signal: np.ndarray,
-    modified_signal: np.ndarray,
-    anomaly_config: dict,
-) -> None:
-    st.subheader("Impact Summary")
-
-    delta = modified_signal - original_signal
-    anomaly_score = calculate_anomaly_score(original_signal, delta)
-    energy_delta = calculate_energy_delta(original_signal, modified_signal)
-
-    metric_columns = st.columns(4)
-    metric_columns[0].metric("Mean |Delta|", f"{np.mean(np.abs(delta)):.4f}")
-    metric_columns[1].metric("Max |Delta|", f"{np.max(np.abs(delta)):.4f}")
-    metric_columns[2].metric("Energy Delta", f"{energy_delta:.2f}%")
-    metric_columns[3].metric("Anomaly Score", f"{anomaly_score:.3f}")
-
-    left_column, right_column = st.columns([1.2, 1])
+def render_alarm_panel(result: DetectionResult) -> None:
+    st.subheader("Detection Result")
+    style = ALARM_STYLES.get(result.predicted_class, ALARM_STYLES[0])
+    left_column, right_column = st.columns([1.4, 1])
 
     with left_column:
-        st.dataframe(
-            build_statistics_table(original_signal, modified_signal),
-            hide_index=True,
-            use_container_width=True,
+        st.markdown(
+            f"""
+            <div style="
+                padding: 1rem;
+                border: 2px solid {style['Border']};
+                border-radius: 8px;
+                background: {style['Background']};
+                color: {style['Text']};
+            ">
+                <div style="font-size: 0.85rem; font-weight: 700;">
+                    PREDICTED CLASS {result.predicted_class}
+                </div>
+                <div style="font-size: 1.45rem; font-weight: 800; margin-top: 0.25rem;">
+                    {style['Status']}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     with right_column:
+        st.metric("Confidence", f"{result.confidence * 100:.2f}%")
+        st.metric("Softmax Winner", f"Class {result.predicted_class}")
+
+
+def render_input_context(
+    context: dict[str, object],
+    result: DetectionResult,
+) -> None:
+    actual_class = context["Actual Class"]
+    metric_columns = st.columns(4)
+    metric_columns[0].metric("Source", str(context["Source"]))
+    metric_columns[1].metric("Cycle", str(context["Cycle"]))
+    metric_columns[2].metric("Actual Class", str(actual_class))
+    metric_columns[3].metric(
+        "Prediction Match",
+        "-"
+        if actual_class == "-"
+        else "Yes" if int(actual_class) == result.predicted_class else "No",
+    )
+
+
+def render_probability_chart(result: DetectionResult) -> None:
+    st.subheader("Class Probability")
+    chart_data = result.probabilities.copy()
+    chart_data["Probability (%)"] = chart_data["Probability"] * 100
+    chart_data["Class Label"] = chart_data["Class"].map(lambda value: f"Class {value}")
+    st.bar_chart(chart_data, x="Class Label", y="Probability (%)")
+
+    with st.expander("View probability values"):
+        probability_table = chart_data[
+            ["Class", "Probability", "Probability (%)"]
+        ].copy()
+        probability_table[["Probability", "Probability (%)"]] = probability_table[
+            ["Probability", "Probability (%)"]
+        ].round(4)
+        st.dataframe(probability_table, hide_index=True, use_container_width=True)
+
+
+def render_multi_cycle_summary(results_table: pd.DataFrame) -> None:
+    st.subheader("Anomaly Status Over Generated Cycles")
+    first_warning = results_table[results_table["Predicted Class"] > 0]
+    metric_columns = st.columns(4)
+    metric_columns[0].metric("Generated Cycles", len(results_table))
+    metric_columns[1].metric("Final Class", int(results_table.iloc[-1]["Predicted Class"]))
+    metric_columns[2].metric(
+        "Final Confidence",
+        f"{results_table.iloc[-1]['Confidence'] * 100:.2f}%",
+    )
+    metric_columns[3].metric(
+        "First Non-normal",
+        "-"
+        if first_warning.empty
+        else int(first_warning.iloc[0]["Generated Cycle"]),
+    )
+    st.line_chart(results_table, x="Generated Cycle", y="Predicted Class")
+
+
+def render_probability_trend(results_table: pd.DataFrame) -> None:
+    st.subheader("Softmax Probability Trend")
+    st.line_chart(
+        results_table,
+        x="Generated Cycle",
+        y=["P Normal", "P Weak Leakage", "P Severe Leakage"],
+    )
+
+
+def render_signal_section(
+    base_signals: dict[str, np.ndarray],
+    final_signals: dict[str, np.ndarray],
+) -> None:
+    st.subheader("Signal Evidence")
+    signal_columns = st.columns([1, 3])
+    sensor = signal_columns[0].selectbox(
+        "Signal view",
+        SENSOR_LIST,
+        key="signal_view_sensor",
+    )
+    chart_data = build_chart_data(
+        base_signals[sensor],
+        final_signals[sensor],
+        CHART_MAX_POINTS,
+    )
+    signal_columns[1].line_chart(chart_data, x="time_step", y=["Original", "Model Input"])
+
+    with st.expander("View signal data"):
+        st.dataframe(chart_data, hide_index=True, use_container_width=True)
+
+
+def render_feature_tables(
+    result: DetectionResult,
+    controls: dict[str, object],
+) -> None:
+    st.subheader("Wavelet Feature Evidence")
+    left_column, right_column = st.columns([1.5, 1])
+
+    with left_column:
+        feature_table = build_feature_table(result)
+        st.dataframe(feature_table, hide_index=True, use_container_width=True)
+
+    with right_column:
+        anomaly_config = dict(controls["anomaly_config"])
+        anomaly_config["Generated cycles"] = controls["generated_cycles"]
+        anomaly_config["Target"] = controls["anomaly_scope"]
+        if controls["anomaly_scope"] == "Selected sensor":
+            anomaly_config["Perturbation sensor"] = controls["target_sensor"]
         config_table = pd.DataFrame(
             {
                 "Parameter": list(anomaly_config.keys()),
@@ -244,79 +597,99 @@ def render_impact_summary(
         st.dataframe(config_table, hide_index=True, use_container_width=True)
 
 
-def calculate_anomaly_score(original_signal: np.ndarray, delta: np.ndarray) -> float:
-    original_std = float(np.std(original_signal)) or 1.0
-    return float(np.mean(np.abs(delta)) / original_std)
+def render_results_table(results_table: pd.DataFrame) -> None:
+    if len(results_table) == 1:
+        return
+
+    with st.expander("View generated cycle classifications", expanded=True):
+        display_table = results_table.copy()
+        display_table["Severity"] = display_table["Severity"].round(3)
+        probability_columns = [
+            "Confidence",
+            "P Normal",
+            "P Weak Leakage",
+            "P Severe Leakage",
+        ]
+        display_table[probability_columns] = display_table[probability_columns].round(4)
+        st.dataframe(display_table, hide_index=True, use_container_width=True)
 
 
-def calculate_energy_delta(
-    original_signal: np.ndarray,
-    modified_signal: np.ndarray,
-) -> float:
-    original_energy = float(np.sum(original_signal**2)) or 1.0
-    modified_energy = float(np.sum(modified_signal**2))
-    return ((modified_energy - original_energy) / original_energy) * 100
-
-
-def build_statistics_table(
-    original_signal: np.ndarray,
-    modified_signal: np.ndarray,
-) -> pd.DataFrame:
-    rows = []
-
-    for label, signal in [
-        ("Original", original_signal),
-        ("Simulated", modified_signal),
-    ]:
-        rows.append(
-            {
-                "Signal": label,
-                "Mean": np.mean(signal),
-                "Std": np.std(signal),
-                "Min": np.min(signal),
-                "Max": np.max(signal),
-                "Energy": np.sum(signal**2),
-            }
-        )
-
-    table = pd.DataFrame(rows)
-    numeric_columns = ["Mean", "Std", "Min", "Max", "Energy"]
-    table[numeric_columns] = table[numeric_columns].round(4)
+def build_feature_table(result: DetectionResult) -> pd.DataFrame:
+    table = pd.DataFrame(
+        {
+            "Feature": result.raw_features.columns,
+            "Raw value": result.raw_features.iloc[0].to_numpy(),
+            "Scaled value": result.scaled_features.iloc[0].to_numpy(),
+        }
+    )
+    table[["Raw value", "Scaled value"]] = table[
+        ["Raw value", "Scaled value"]
+    ].round(4)
     return table
 
 
-def render_simulation_information() -> None:
-    st.subheader("Simulation Guide")
-
-    st.info(
-        "This page quantifies how synthetic perturbations affect sensor signals. "
-        "It is designed for signal-level analysis, not live model inference."
+def build_chart_data(
+    original_signal: np.ndarray,
+    modified_signal: np.ndarray,
+    max_points: int,
+) -> pd.DataFrame:
+    step = max(1, len(original_signal) // max_points)
+    time_steps = np.arange(len(original_signal))[::step]
+    return pd.DataFrame(
+        {
+            "time_step": time_steps,
+            "Original": original_signal[::step],
+            "Model Input": modified_signal[::step],
+        }
     )
 
-    guide_columns = st.columns(2)
 
-    with guide_columns[0]:
-        st.markdown(
-            """
-            **Anomaly types**
+def build_upload_template_csv() -> str:
+    template_signals = load_cycle_signals(10)
+    max_length = max(len(signal) for signal in template_signals.values())
+    template = pd.DataFrame(index=range(max_length))
 
-            - **Noise**: random disturbance across the signal.
-            - **Spike**: localized transient increase.
-            - **Drift**: gradual increase or decrease across a cycle.
-            - **Offset**: constant shift applied to all points.
-            - **Scale**: amplitude change across the full signal.
-            """
-        )
+    for sensor in SENSOR_LIST:
+        values = pd.Series(template_signals[sensor], dtype=float)
+        template[sensor] = values.reindex(range(max_length))
 
-    with guide_columns[1]:
-        st.markdown(
-            """
-            **Primary outputs**
+    return template.to_csv(index=False)
 
-            - `Original` and `Simulated` signal curves.
-            - `Mean |Delta|` for average absolute deviation.
-            - `Max |Delta|` for peak deviation.
-            - `Energy Delta` for signal-energy shift.
-            - `Anomaly Score` as a normalized perturbation indicator.
-            """
-        )
+
+def parse_uploaded_cycle(uploaded_file) -> dict[str, np.ndarray]:
+    uploaded_text = uploaded_file.getvalue().decode("utf-8")
+    uploaded_data = pd.read_csv(StringIO(uploaded_text))
+    missing_columns = [
+        sensor for sensor in SENSOR_LIST if sensor not in uploaded_data.columns
+    ]
+    if missing_columns:
+        raise ValueError(f"Missing CSV columns: {', '.join(missing_columns)}")
+
+    sensor_signals: dict[str, np.ndarray] = {}
+    for sensor in SENSOR_LIST:
+        values = pd.to_numeric(uploaded_data[sensor], errors="coerce").dropna()
+        if len(values) < 2:
+            raise ValueError(f"Column {sensor} must contain at least two numeric values.")
+        sensor_signals[sensor] = values.to_numpy(dtype=float)
+
+    return sensor_signals
+
+
+def get_cycle_options(class_id: int) -> list[int]:
+    profile = load_profile()
+    cycle_options = profile.index[profile["pump_leak"] == class_id].tolist()
+    if not cycle_options:
+        raise ValueError(f"No cycles found for class {class_id}")
+    return [int(cycle_index) for cycle_index in cycle_options]
+
+
+def get_default_cycle_index(scenario: dict, cycle_options: list[int]) -> int:
+    default_cycle = int(scenario["Default Cycle"])
+    return cycle_options.index(default_cycle) if default_cycle in cycle_options else 0
+
+
+def load_cycle_signals(cycle_index: int) -> dict[str, np.ndarray]:
+    return {
+        sensor: load_sensor_data(sensor).iloc[cycle_index].to_numpy(dtype=float)
+        for sensor in SENSOR_LIST
+    }
