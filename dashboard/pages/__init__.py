@@ -1,1 +1,1 @@
-"""Dashboard page modules."""
+"""Streamlit page modules."""

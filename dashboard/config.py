@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-APP_TITLE = "WANFIS Hydraulic Dashboard"
+APP_TITLE = "WANFIS Hydraulic System"
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = BASE_DIR / "data"
@@ -27,10 +27,9 @@ CLASS_LABELS = {
 }
 
 NAVIGATION_ITEMS = [
-    "Overview",
+    "Anomaly Simulation",
     "Dataset Explorer",
     "Visualization Model",
-    "Anomaly Simulation",
 ]
 
 PROJECT_METRICS = {

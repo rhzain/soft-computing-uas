@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.config import (
+    CV_RESULTS,
     FINAL_EVALUATION,
     IMAGE_ARTIFACTS,
     MODEL_ARTIFACT_PATH,
@@ -19,9 +20,18 @@ def render() -> None:
     )
 
     render_model_metrics()
+    render_project_context()
 
-    tab_architecture, tab_tuning, tab_evaluation, tab_membership, tab_artifact = st.tabs(
+    (
+        tab_pipeline,
+        tab_architecture,
+        tab_tuning,
+        tab_evaluation,
+        tab_membership,
+        tab_artifact,
+    ) = st.tabs(
         [
+            "Pipeline",
             "Arsitektur",
             "Tuning r_a",
             "Evaluasi",
@@ -29,6 +39,9 @@ def render() -> None:
             "Artifact",
         ]
     )
+
+    with tab_pipeline:
+        render_pipeline()
 
     with tab_architecture:
         render_architecture()
@@ -53,6 +66,84 @@ def render_model_metrics() -> None:
     metric_columns[2].metric("Fuzzy Rules", "4")
     metric_columns[3].metric("Best r_a", "0.6")
     metric_columns[4].metric("Classes", "3")
+
+
+def render_project_context() -> None:
+    st.markdown(
+        """
+        Model pada proyek ini menggabungkan ekstraksi fitur wavelet,
+        Subtractive Clustering, dan ANFIS berbasis PyTorch untuk
+        mengklasifikasikan kondisi kebocoran pompa.
+        """
+    )
+
+    left_column, right_column = st.columns([1, 1])
+
+    with left_column:
+        final_table = pd.DataFrame(
+            {
+                "Metrik Final": list(FINAL_EVALUATION.keys()),
+                "Nilai": list(FINAL_EVALUATION.values()),
+            }
+        )
+        st.markdown("**Hasil Evaluasi Final**")
+        st.dataframe(final_table, hide_index=True, use_container_width=True)
+
+    with right_column:
+        cv_table = pd.DataFrame(
+            {
+                "Metrik CV": list(CV_RESULTS.keys()),
+                "Nilai": list(CV_RESULTS.values()),
+            }
+        )
+        st.markdown("**Ringkasan Cross-Validation**")
+        st.dataframe(cv_table, hide_index=True, use_container_width=True)
+
+
+def render_pipeline() -> None:
+    st.subheader("Pipeline Model")
+
+    pipeline_steps = pd.DataFrame(
+        [
+            {
+                "No": 1,
+                "Tahap": "Load data sensor",
+                "Output": "Matriks sensor PS1, PS2, PS3, TS1, TS2",
+            },
+            {
+                "No": 2,
+                "Tahap": "Ekstraksi wavelet",
+                "Output": "15 fitur: mean_cA, std_cA, energy_cD",
+            },
+            {
+                "No": 3,
+                "Tahap": "Standardisasi",
+                "Output": "Fitur dalam skala Z-score",
+            },
+            {
+                "No": 4,
+                "Tahap": "Subtractive Clustering",
+                "Output": "Pusat cluster sebagai rule fuzzy awal",
+            },
+            {
+                "No": 5,
+                "Tahap": "Training ANFIS",
+                "Output": "Model klasifikasi 3 kelas pump_leak",
+            },
+            {
+                "No": 6,
+                "Tahap": "Evaluasi",
+                "Output": "Accuracy, weighted F1, confusion matrix",
+            },
+        ]
+    )
+
+    st.dataframe(pipeline_steps, hide_index=True, use_container_width=True)
+    st.code(
+        "Sensor signals -> Wavelet features -> Scaling -> "
+        "Subtractive Clustering -> ANFIS -> Prediction",
+        language="text",
+    )
 
 
 def render_architecture() -> None:
@@ -103,7 +194,9 @@ def render_tuning() -> None:
     results = pd.DataFrame(RA_GRID_RESULTS)
     st.dataframe(results, hide_index=True, use_container_width=True)
 
-    chart_data = results.set_index("r_a")[["Mean Accuracy", "Mean F1"]]
+    chart_data = results.sort_values("r_a").set_index("r_a")[
+        ["Mean Accuracy", "Mean F1"]
+    ]
     st.line_chart(chart_data)
 
     render_image_artifact(

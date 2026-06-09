@@ -7,15 +7,13 @@ from dashboard.pages import (
     anomaly_simulation,
     dataset_explorer,
     model_visualization,
-    overview,
 )
 
 
 PAGES = {
-    "Overview": overview.render,
+    "Anomaly Simulation": anomaly_simulation.render,
     "Dataset Explorer": dataset_explorer.render,
     "Visualization Model": model_visualization.render,
-    "Anomaly Simulation": anomaly_simulation.render,
 }
 
 
@@ -48,7 +46,7 @@ def configure_page() -> None:
 
 def render_sidebar() -> str:
     st.sidebar.title(APP_TITLE)
-    st.sidebar.caption("WANFIS untuk klasifikasi kebocoran pompa")
+    st.sidebar.caption("Visualisasi model dan simulasi anomali")
     return st.sidebar.radio(
         "Menu",
         NAVIGATION_ITEMS,

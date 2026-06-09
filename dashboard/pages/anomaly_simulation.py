@@ -24,6 +24,8 @@ def render() -> None:
         "sensor mentah."
     )
 
+    render_simulation_information()
+
     sensor, cycle_index, max_points = render_input_controls()
     original_signal = load_sensor_data(sensor).iloc[cycle_index].to_numpy(dtype=float)
     modified_signal, anomaly_config = render_anomaly_controls(original_signal)
@@ -31,7 +33,6 @@ def render() -> None:
     render_cycle_context(cycle_index)
     render_signal_comparison(original_signal, modified_signal, max_points)
     render_impact_summary(original_signal, modified_signal, anomaly_config)
-    render_notes()
 
 
 def render_input_controls() -> tuple[str, int, int]:
@@ -285,24 +286,39 @@ def build_statistics_table(
     return table
 
 
-def render_notes() -> None:
+def render_simulation_information() -> None:
+    st.subheader("Cara Membaca Simulasi")
+
     st.info(
         "Simulasi ini masih berfokus pada perubahan sinyal sensor. Prediksi "
         "ulang menggunakan model WANFIS bisa ditambahkan setelah pipeline "
         "inference model disiapkan."
     )
 
-    with st.expander("Cara membaca simulasi"):
+    guide_columns = st.columns(2)
+
+    with guide_columns[0]:
         st.markdown(
             """
-            - **Noise** menambahkan gangguan acak pada seluruh sinyal.
-            - **Spike** menambahkan lonjakan lokal pada titik waktu tertentu.
-            - **Drift** membuat sinyal naik atau turun perlahan sepanjang cycle.
-            - **Offset** menggeser seluruh sinyal dengan nilai konstan.
-            - **Scale** mengalikan seluruh sinyal dengan faktor tertentu.
+            **Jenis anomali**
 
-            `Anomaly Score` dihitung sederhana dari rata-rata perubahan absolut
-            dibanding standar deviasi sinyal asli. Nilai ini bukan skor model,
-            tetapi indikator cepat seberapa besar perubahan buatan terhadap sinyal.
+            - **Noise**: gangguan acak pada seluruh sinyal.
+            - **Spike**: lonjakan lokal pada titik waktu tertentu.
+            - **Drift**: perubahan naik atau turun perlahan sepanjang cycle.
+            - **Offset**: pergeseran seluruh sinyal dengan nilai konstan.
+            - **Scale**: perubahan amplitudo seluruh sinyal.
+            """
+        )
+
+    with guide_columns[1]:
+        st.markdown(
+            """
+            **Output yang perlu diperhatikan**
+
+            - Grafik `Original` vs `Simulated`.
+            - `Mean |Delta|` untuk rata-rata besar perubahan.
+            - `Max |Delta|` untuk perubahan terbesar.
+            - `Energy Delta` untuk perubahan energi sinyal.
+            - `Anomaly Score` sebagai indikator cepat, bukan skor model.
             """
         )

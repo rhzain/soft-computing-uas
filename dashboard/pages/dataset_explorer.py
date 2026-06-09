@@ -18,9 +18,12 @@ def render() -> None:
 
     render_dataset_metrics(summary)
 
-    tab_distribution, tab_sensor, tab_profile = st.tabs(
-        ["Distribusi Target", "Preview Sensor", "Profile Data"]
+    tab_summary, tab_distribution, tab_sensor, tab_profile = st.tabs(
+        ["Ringkasan Data", "Distribusi Target", "Preview Sensor", "Profile Data"]
     )
+
+    with tab_summary:
+        render_dataset_summary(summary)
 
     with tab_distribution:
         render_target_distribution(summary.class_distribution)
@@ -33,7 +36,7 @@ def render() -> None:
 
 
 def render_dataset_metrics(summary) -> None:
-    metric_columns = st.columns(4)
+    metric_columns = st.columns(5)
     metric_columns[0].metric(
         "Jumlah Siklus",
         f"{summary.cycle_count:,}".replace(",", "."),
@@ -41,6 +44,92 @@ def render_dataset_metrics(summary) -> None:
     metric_columns[1].metric("Sensor Dipakai", len(SENSOR_LIST))
     metric_columns[2].metric("Target", "pump_leak")
     metric_columns[3].metric("Jumlah Kelas", len(CLASS_LABELS))
+    metric_columns[4].metric("Fitur Wavelet", "15")
+
+
+def render_dataset_summary(summary) -> None:
+    st.subheader("Konteks Dataset")
+
+    st.markdown(
+        """
+        Dataset yang digunakan adalah **Condition Monitoring of Hydraulic
+        Systems**. Setiap baris mewakili satu cycle operasi sistem hidrolik.
+        Proyek ini fokus pada klasifikasi kondisi `pump_leak` berdasarkan
+        sinyal sensor tekanan dan temperatur.
+        """
+    )
+
+    left_column, right_column = st.columns([1, 1])
+
+    with left_column:
+        class_table = pd.DataFrame(
+            {
+                "Kelas": list(CLASS_LABELS.keys()),
+                "Makna": list(CLASS_LABELS.values()),
+            }
+        )
+        st.markdown("**Makna Kelas Target**")
+        st.dataframe(class_table, hide_index=True, use_container_width=True)
+
+    with right_column:
+        sensor_table = pd.DataFrame(
+            {
+                "Sensor": SENSOR_LIST,
+                "Jumlah Siklus": [
+                    summary.sensor_shapes[sensor][0] for sensor in SENSOR_LIST
+                ],
+                "Time Steps": [
+                    summary.sensor_shapes[sensor][1] for sensor in SENSOR_LIST
+                ],
+            }
+        )
+        st.markdown("**Sensor Yang Digunakan**")
+        st.dataframe(sensor_table, hide_index=True, use_container_width=True)
+
+    render_feature_summary()
+    render_stable_flag_distribution()
+
+
+def render_feature_summary() -> None:
+    st.subheader("Fitur Wavelet")
+
+    feature_table = pd.DataFrame(
+        [
+            {
+                "Fitur": "mean_cA",
+                "Sumber": "Koefisien approximation",
+                "Makna": "Rata-rata komponen utama sinyal",
+            },
+            {
+                "Fitur": "std_cA",
+                "Sumber": "Koefisien approximation",
+                "Makna": "Variasi komponen utama sinyal",
+            },
+            {
+                "Fitur": "energy_cD",
+                "Sumber": "Koefisien detail",
+                "Makna": "Energi perubahan cepat pada sinyal",
+            },
+        ]
+    )
+
+    st.dataframe(feature_table, hide_index=True, use_container_width=True)
+    st.info(
+        "Setiap sensor menghasilkan 3 fitur wavelet. Dengan 5 sensor, total "
+        "input model adalah 15 fitur."
+    )
+
+
+def render_stable_flag_distribution() -> None:
+    profile = load_profile()
+    stable_counts = profile["stable_flag"].value_counts().sort_index()
+
+    st.subheader("Distribusi Stable Flag")
+    st.bar_chart(stable_counts)
+    st.caption(
+        "`stable_flag = 0` berarti kondisi stabil, sedangkan `stable_flag = 1` "
+        "menandakan kondisi statis kemungkinan belum tercapai."
+    )
 
 
 def render_target_distribution(class_distribution: pd.DataFrame) -> None:
